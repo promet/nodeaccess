@@ -564,7 +564,7 @@ function nodeaccess_grants_form($form, &$form_state, $node) {
     $result = db_query("SELECT r.rid, nra.name, na.grant_view, na.grant_update, na.grant_delete
       FROM {role} r
       LEFT JOIN {nodeaccess_role_alias} nra ON r.rid = nra.rid
-      LEFT JOIN {node_access} na ON r.rid = na.gid AND na.realm = :realm AND na.nid = :nid
+      LEFT JOIN {nodeaccess} na ON r.rid = na.gid AND na.realm = :realm AND na.nid = :nid
       ORDER BY nra.weight, nra.name", array(':realm' => 'nodeaccess_rid', ':nid' => $node->nid));
     foreach ($result as $grant) {
       $form_values['rid'][$grant->rid] = array(
@@ -576,7 +576,7 @@ function nodeaccess_grants_form($form, &$form_state, $node) {
     }
     // Load users from node_access.
     $results = db_query("SELECT uid, name, grant_view, grant_update, grant_delete
-      FROM {node_access}
+      FROM {nodeaccess}
       LEFT JOIN {users} ON uid = gid
       WHERE nid = :nid AND realm = :realm
       ORDER BY name", array(
@@ -623,14 +623,14 @@ function nodeaccess_grants_form($form, &$form_state, $node) {
       foreach (array_keys($form_values['uid']) as $uid) {
         if (!$form_values['uid'][$uid]['keep']) {
           foreach (array('grant_view', 'grant_update', 'grant_delete') as $grant_type) {
-            $form_values['uid'][$uid][$grant_type] = db_query_range("SELECT count(*) FROM {node_access} na LEFT JOIN {users_roles} r ON na.gid = r.rid WHERE nid = :nid AND realm = :realm AND uid = :uid AND $grant_type = 1",
+            $form_values['uid'][$uid][$grant_type] = db_query_range("SELECT count(*) FROM {nodeaccess} na LEFT JOIN {users_roles} r ON na.gid = r.rid WHERE nid = :nid AND realm = :realm AND uid = :uid AND $grant_type = 1",
               0, 1,
               array(
                 ':nid' => $node->nid,
                 ':realm' => 'nodeaccess_rid',
                 ':uid' => $uid,
               ))->fetchField() ||
-              db_query_range("SELECT count(*) FROM {node_access} na WHERE nid = :nid AND realm = :realm AND gid = :gid AND $grant_type = 1",
+              db_query_range("SELECT count(*) FROM {nodeaccess} na WHERE nid = :nid AND realm = :realm AND gid = :gid AND $grant_type = 1",
                 0, 1,
                 array(
                   ':nid' => $node->nid,
@@ -1057,7 +1057,7 @@ function nodeaccess_node_delete($node) {
  * Implements hook_node_access_records().
  */
 function nodeaccess_node_access_records($node) {
-  if (nodeaccess_disabling()) {
+  if (nodeaccess_disabling() || !$node->status) {
     return;
   }
   // Need to find out if node has own grants or whether to use defaults.
@@ -1076,30 +1076,7 @@ function nodeaccess_node_access_records($node) {
   $result = db_query("SELECT count(*) FROM {nodeaccess} WHERE nid = :nid", array(':nid' => $node->nid))->fetchField();
   if ($result < 1) {
     // Node has no own grants, use defaults if published.
-    if ($node->status) {
-      $grants = $default;
-    }
-    else {
-      // Otherwise, check access to unpublished content for authenticated and
-      // anonymous users.
-      $role_perms = user_role_permissions(array(
-        DRUPAL_ANONYMOUS_RID => DRUPAL_ANONYMOUS_RID,
-        DRUPAL_AUTHENTICATED_RID => DRUPAL_AUTHENTICATED_RID,
-      ));
-      // Anonymous user setting.
-      $grants = array();
-      $grants[] = array(
-        'gid' => DRUPAL_ANONYMOUS_RID,
-        'grant_view' => isset($role_perms[DRUPAL_ANONYMOUS_RID]['bypass node access']) ?
-          intval($role_perms[DRUPAL_ANONYMOUS_RID]['bypass node access']) : 0,
-      );
-      // Authenticated user setting.
-      $grants[] = array(
-        'gid' => DRUPAL_AUTHENTICATED_RID,
-        'grant_view' => isset($role_perms[DRUPAL_AUTHENTICATED_RID]['bypass node access']) ?
-          intval($role_perms[DRUPAL_AUTHENTICATED_RID]['bypass node access']) : 0,
-      );
-    }
+    $grants = $default;
   }
   else {
     // Node has own grants, use them.
